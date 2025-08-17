@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>EBE Erfassung</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: #f4f4f8; color: #333; }
+        header { background-color: #fff; padding: 15px; border-bottom: 1px solid #ddd; text-align: center; font-size: 1.2em; font-weight: bold; position: sticky; top: 0; z-index: 10; }
+        main { padding: 15px; }
+        .form-section { background-color: #fff; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        h2 { font-size: 1em; color: #007aff; margin-top: 0; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+        label { display: block; font-weight: 500; color: #555; margin-bottom: 8px; font-size: 0.9em; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 1em; }
+        .gender-group { display: flex; gap: 10px; justify-content: space-between; }
+        .gender-group label { border: 1px solid #ccc; padding: 10px; border-radius: 8px; flex-grow: 1; text-align: center; cursor: pointer;}
+        input[type="radio"] { display: none; }
+        input[type="radio"]:checked + label { background-color: #007aff; color: white; border-color: #007aff; }
+        .row { display: flex; gap: 15px; }
+        .col { flex: 1; }
+        #submit-button { width: 100%; padding: 15px; background-color: #007aff; color: white; border: none; border-radius: 8px; font-size: 1.1em; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        #submit-button:disabled { background-color: #aaa; }
+        .info-box { padding: 10px; background-color: #eef5ff; border: 1px solid #d0e0ff; border-radius: 8px; font-size: 0.9em; margin-bottom: 20px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
+</head>
+<body>
+    <header>EBE Erfassung</header>
+    <main>
+        <div class="info-box">
+            💡 Nächste Beleg-Nr.: <b id="next-beleg-nr">wird berechnet...</b>
+        </div>
+        <form id="ebe-form">
+            <div class="form-section">
+                <h2>Fahrgastdaten</h2>
+                <div class="row">
+                    <div class="col"><label for="nachname">Nachname</label><input type="text" id="nachname" name="nachname"></div>
+                    <div class="col"><label for="vorname">Vorname</label><input type="text" id="vorname" name="vorname"></div>
+                </div>
+                 <div class="row">
+                    <div class="col"><label for="geburtsdatum">Geburtsdatum</label><input type="text" id="geburtsdatum" name="geburtsdatum" placeholder="TT.MM.JJJJ"></div>
+                    <div class="col">
+                        <label>Geschlecht</label>
+                        <div class="gender-group">
+                            <input type="radio" id="gender_m" name="geschlecht" value="M"><label for="gender_m">M</label>
+                            <input type="radio" id="gender_w" name="geschlecht" value="W"><label for="gender_w">W</label>
+                            <input type="radio" id="gender_d" name="geschlecht" value="D"><label for="gender_d">D</label>
+                        </div>
+                    </div>
+                </div>
+                <label for="strasse_hausnummer">Straße, Hausnummer</label><input type="text" id="strasse_hausnummer" name="strasse_hausnummer">
+                <label for="plz_ort">PLZ, Ort</label><input type="text" id="plz_ort" name="plz_ort">
+            </div>
+            <div class="form-section">
+                <h2>Vorfallsdaten</h2>
+                <div class="row">
+                    <div class="col"><label for="linie">Linie</label><input type="text" id="linie" name="linie"></div>
+                    <div class="col"><label for="pruefhaltestelle">Prüfhaltestelle</label><input type="text" id="pruefhaltestelle" name="pruefhaltestelle"></div>
+                </div>
+                <label for="pruefer_nummer">Prüfernummer</label><input type="text" id="pruefer_nummer" name="pruefer_nummer" value="95010" required>
+                <label for="beanstandungsart">Beanstandungsart</label>
+                <select id="beanstandungsart" name="beanstandungsart">
+                    <option>ohne gültigen Fahrausweis</option>
+                    <option>Fahrausweis nicht entwertet</option>
+                    <option>Abo / Zeitkarte vergessen</option>
+                </select>
+                <label for="beanstandungsgrund">Beanstandungsgrund (optional)</label><input type="text" id="beanstandungsgrund" name="beanstandungsgrund" placeholder="z.B. Falscher Geltungszeitraum">
+            </div>
+            <div class="form-section">
+                <h2>Zahlung</h2>
+                <label for="bereits_gezahlt">Bereits erfolgte Zahlung (€)</label>
+                <input type="number" step="0.01" id="bereits_gezahlt" name="bereits_gezahlt" value="0.00">
+            </div>
+
+            <button type="submit" id="submit-button">Beleg Erstellen & Herunterladen</button>
+        </form>
+    </main>
+
+    <script>
+        // --- INITIALISIERUNG ---
+        const { PDFDocument, rgb, StandardFonts } = PDFLib;
+
+        // --- BELEG-NUMMER LOGIK ---
+        function getNaechsteBelegNummer() {
+            const prueferNummer = document.getElementById('pruefer_nummer').value || '???';
+            const heute = new Date().toISOString().slice(0, 10); // JJJJ-MM-TT
+            const key = `ebe_counter_${heute}`;
+            let counter = parseInt(localStorage.getItem(key) || '0') + 1;
+            const nummer = `${prueferNummer}${heute.replace(/-/g, '')}${counter.toString().padStart(4, '0')}`; // Angepasst an Beispiellayout
+            document.getElementById('next-beleg-nr').textContent = nummer;
+            return { key, counter, nummer };
+        }
+
+        // --- PDF ERSTELLUNG & DOWNLOAD ---
+        async function erstellePdf(data, belegNummer) {
+            const pdfDoc = await PDFDocument.create();
+            const page = pdfDoc.addPage([80 * 2.8346, 260 * 2.8346]);
+            const { width, height } = page.getSize();
+            const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+            const margin = 15;
+            let y = height - 15;
+
+            const drawPair = (label, value, yPos, labelSize=8, valueSize=10) => {
+                page.drawText(label, { x: margin, y: yPos, font: font, size: labelSize, color: rgb(0.3, 0.3, 0.3) });
+                page.drawText(value || '', { x: margin + 65, y: yPos, font: boldFont, size: valueSize });
+                return yPos - 18;
+            };
+
+            // ---- HEADER ----
+            page.drawText('Rechnung zur Fahrausweisprüfung', { x: (width - font.widthOfTextAtSize('Rechnung zur Fahrausweisprüfung', 8)) / 2, y, font, size: 8 });
+            y -= 10;
+            page.drawText('Beleg-Nr.', { x: (width - boldFont.widthOfTextAtSize('Beleg-Nr.', 12)) / 2, y, font: boldFont, size: 12 });
+            y -= 18;
+            page.drawText(belegNummer, { x: (width - boldFont.widthOfTextAtSize(belegNummer, 18)) / 2, y, font: boldFont, size: 18 });
+            y -= 12;
+            page.drawText('bitte bei Zahlungen und Rückfragen angeben', { x: (width - font.widthOfTextAtSize('bitte bei Zahlungen und Rückfragen angeben', 7)) / 2, y, font, size: 7 });
+            y -= 20;
+
+            // ---- ERFASSTE DATEN ----
+            const jetzt = new Date();
+            const datumFormatiert = `${jetzt.getDate().toString().padStart(2, '0')}.${(jetzt.getMonth() + 1).toString().padStart(2, '0')}.${jetzt.getFullYear()}`;
+            const uhrzeitFormatiert = jetzt.toTimeString().slice(0, 5);
+
+            y = drawPair('Name, Vorname:', `${data.nachname}, ${data.vorname}`, y);
+            y = drawPair('Geschlecht:', data.geschlecht, y);
+            y = drawPair('Geburtsdatum:', data.geburtsdatum, y);
+            y = drawPair('Straße, Haus-Nr.:', data.strasse_hausnummer, y);
+            y = drawPair('PLZ, Wohnort:', data.plz_ort, y);
+            y = drawPair('Linie:', data.linie, y);
+            y = drawPair('Prüfhaltestelle:', data.pruefhaltestelle, y);
+            y = drawPair('Uhrzeit, Datum:', `${uhrzeitFormatiert}, ${datumFormatiert}`, y);
+            y = drawPair('Prüfernummer:', data.pruefer_nummer, y);
+            y = drawPair('Beanstandungsart:', data.beanstandungsart, y);
+            y = drawPair('Beanstandungsgrund:', data.beanstandungsgrund, y);
+            y -= 10;
+            
+            // ---- FORDERUNG ----
+            const forderungText = 'Gemäß §9 der gemeinsamen Beförderungsbedingungen im VVS beträgt unsere Forderung:';
+            page.drawText(forderungText, { x: margin, y, font, size: 8 });
+            y -= 25;
+            page.drawText('60,00 EUR', { x: (width - boldFont.widthOfTextAtSize('60,00 EUR', 22)) / 2, y, font: boldFont, size: 22 });
+            y -= 12;
+            page.drawText('zahlbar innerhalb 14 Tagen', { x: (width - boldFont.widthOfTextAtSize('zahlbar innerhalb 14 Tagen', 9)) / 2, y, font: boldFont, size: 9 });
+            const gezahlt = parseFloat(data.bereits_gezahlt || 0);
+            if (gezahlt > 0) {
+                y -= 12;
+                page.drawText(`- abzüglich vorläufiger Zahlung: ${gezahlt.toFixed(2)} EUR`, { x: (width - font.widthOfTextAtSize(`- abzüglich vorläufiger Zahlung: ${gezahlt.toFixed(2)} EUR`, 8)) / 2, y, font, size: 8 });
+            }
+            y -= 15;
+
+            // ---- RECHTLICHER HINWEIS ----
+            const rechtstext = `Wir prüfen in jedem Fall, ob eine Nachforderung auf Grund dieser oder früherer Beanstandungen erfolgen muss. Nicht zuordenbare Zahlungen haben keine schuldbefreiende Wirkung. Fahren ohne gültigen Fahrausweis kann nach §265a StGB strafrechtliche Folgen haben. Ihre Daten/Angaben werden zur Bearbeitung des erhöhten Beförderungsentgeltes bei den unten angegebenen Unternehmen gespeichert. Die Bestimmungen des Bundesdatenschutzgesetzes werden eingehalten.`;
+            const textLines = font.layoutText(rechtstext, { size: 6.5, maxWidth: width - (2 * margin), lineHeight: 8 });
+            for (const line of textLines.lines) {
+                 page.drawText(line.text, { x: margin, y, size: 6.5, font, color: rgb(0.2, 0.2, 0.2), lineHeight: 8 });
+                 y -= line.height;
+            }
+            y -= 15;
+
+            // ---- GÜLTIGKEIT ----
+            page.drawText(`Gültig als Fahrausweis bis Fahrtende`, { x: (width - boldFont.widthOfTextAtSize(`Gültig als Fahrausweis bis Fahrtende`, 11)) / 2, y, font: boldFont, size: 11 });
+            y -= 14;
+            page.drawText(`Rechnungsdatum: ${datumFormatiert}`, { x: (width - boldFont.widthOfTextAtSize(`Rechnungsdatum: ${datumFormatiert}`, 11)) / 2, y, font: boldFont, size: 11 });
+            y -= 20;
+
+            // ---- BANKDATEN & KONTAKT ----
+            y = drawPair('Bankverbindung:', 'Deutsche Bank', y, 8, 9);
+            y = drawPair('IBAN:', 'DE1234567890', y, 8, 9);
+            y = drawPair('BIC:', 'ABC123', y, 8, 9);
+            y = drawPair('Verwendungszweck:', belegNummer, y, 8, 9);
+            y -= 10;
+            y = drawPair('Kontakt:', 'Prüfdienst', y, 8, 9);
+            y = drawPair('E-Mail:', 'prüfdienst@abc.de', y, 8, 9);
+            y = drawPair('Telefon:', '0711 12345', y, 8, 9);
+
+            // ---- PDF SPEICHERN & DOWNLOAD ----
+            const pdfBytes = await pdfDoc.save();
+            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            const filename = `EBE_${data.nachname || 'Unbekannt'}_${belegNummer}.pdf`;
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+
+        // --- EVENT LISTENER & START ---
+        document.getElementById('pruefer_nummer').addEventListener('keyup', getNaechsteBelegNummer);
+        document.addEventListener('DOMContentLoaded', getNaechsteBelegNummer);
+
+        document.getElementById('ebe-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const submitButton = document.getElementById('submit-button');
+            submitButton.disabled = true;
+            submitButton.textContent = 'Erstelle PDF...';
+
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData.entries());
+            
+            const { key, counter, nummer } = getNaechsteBelegNummer();
+            localStorage.setItem(key, counter);
+
+            await erstellePdf(data, nummer);
+
+            this.reset();
+            getNaechsteBelegNummer();
+
+            submitButton.disabled = false;
+            submitButton.textContent = 'Beleg Erstellen & Herunterladen';
+        });
+    </script>
+</body>
+</html>
