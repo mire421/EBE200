@@ -150,7 +150,7 @@ function autoFillPLZ() {
       localStorage.setItem(counterKey, count);
 
       const belegnummer = `EBE-${today}-${String(count).padStart(3, '0')}`;
-      const pdf = new jsPDF({ unit: 'mm', format: [80, 2000] });
+      const pdf = new jsPDF({ unit: 'mm', format: [80, 200] });
       let y = 10;
       const margin = 5;
       const maxWidth = 70;
